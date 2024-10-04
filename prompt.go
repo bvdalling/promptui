@@ -58,19 +58,22 @@ type Prompt struct {
 // text/template syntax. Custom state, colors and background color are available for use inside
 // the templates and are documented inside the Variable section of the docs.
 //
-// Examples
+// # Examples
 //
 // text/templates use a special notation to display programmable content. Using the double bracket notation,
 // the value can be printed with specific helper functions. For example
 //
 // This displays the value given to the template as pure, unstylized text.
-// 	'{{ . }}'
+//
+//	'{{ . }}'
 //
 // This displays the value colored in cyan
-// 	'{{ . | cyan }}'
+//
+//	'{{ . | cyan }}'
 //
 // This displays the value colored in red with a cyan background-color
-// 	'{{ . | red | cyan }}'
+//
+//	'{{ . | red | cyan }}'
 //
 // See the doc of text/template for more info: https://golang.org/pkg/text/template/
 type PromptTemplates struct {
@@ -158,34 +161,41 @@ func (p *Prompt) Run() (string, error) {
 	eraseDefault := input != "" && !p.AllowEdit
 	cur := NewCursor(input, p.Pointer, eraseDefault)
 
+	var lastValidInput string
+
+	initialPrompt := render(p.Templates.prompt, p.Label)
+	sb.Write(initialPrompt)
+	sb.Flush()
+
 	listen := func(input []rune, pos int, key rune) ([]rune, int, bool) {
 		_, _, keepOn := cur.Listen(input, pos, key)
-		err := validFn(cur.Get())
-		var prompt []byte
+		currentInput := cur.Get() // Get the current input
+		err := validFn(currentInput)
 
-		if err != nil {
-			prompt = render(p.Templates.invalid, p.Label)
-		} else {
-			prompt = render(p.Templates.valid, p.Label)
-			if p.IsConfirm {
-				prompt = render(p.Templates.prompt, p.Label)
+		if currentInput != lastValidInput {
+			if err != nil {
+				initialPrompt = render(p.Templates.invalid, p.Label)
+			} else {
+				initialPrompt = render(p.Templates.valid, p.Label)
 			}
+
+			echo := cur.Format()
+			if p.Mask != 0 {
+				echo = cur.FormatMask(p.Mask)
+			}
+
+			initialPrompt = append(initialPrompt, []byte(echo)...)
+			sb.Reset()
+			sb.Write(initialPrompt)
+			if inputErr != nil {
+				validation := render(p.Templates.validation, inputErr)
+				sb.Write(validation)
+				inputErr = nil
+			}
+			sb.Flush()
+			lastValidInput = currentInput // Update last valid input
 		}
 
-		echo := cur.Format()
-		if p.Mask != 0 {
-			echo = cur.FormatMask(p.Mask)
-		}
-
-		prompt = append(prompt, []byte(echo)...)
-		sb.Reset()
-		sb.Write(prompt)
-		if inputErr != nil {
-			validation := render(p.Templates.validation, inputErr)
-			sb.Write(validation)
-			inputErr = nil
-		}
-		sb.Flush()
 		return nil, 0, keepOn
 	}
 
